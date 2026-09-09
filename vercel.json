@@ -1,6 +1,6 @@
 {
   "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm --filter @workspace/zam-viewer build",
-  "outputDirectory": "artifacts/zam-viewer/dist/public",
+  "buildCommand": "pnpm --filter @workspace/zam-viewer build && rm -rf public && cp -R artifacts/zam-viewer/dist/public public",
+  "outputDirectory": "public",
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
