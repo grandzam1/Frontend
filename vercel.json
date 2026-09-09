@@ -1,3 +1,5 @@
 {
-  "outputDirectory": "dist/public"
+  "installCommand": "pnpm install --frozen-lockfile",
+  "buildCommand": "pnpm --filter @workspace/zam-viewer build",
+  "outputDirectory": "artifacts/zam-viewer/dist/public"
 }
