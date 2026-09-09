@@ -1,1 +1,0 @@
-- [Artifact dependency bootstrap](dependencies-bootstrap.md) — new artifact packages may need a workspace install before local typechecking.
