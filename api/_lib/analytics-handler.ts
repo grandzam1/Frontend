@@ -5,6 +5,12 @@ export type HogQLResult = {
   results: unknown[][];
 };
 
+export type AnalyticsSummary = {
+  pageviews: number;
+  visitors: number;
+  countries: number;
+};
+
 function posthogHost() {
   return (
     process.env.POSTHOG_HOST ||
@@ -61,6 +67,11 @@ export async function runHogQLQuery(query: string, name: string) {
   } satisfies HogQLResult;
 }
 
+function numberCell(row: unknown[] | undefined, index: number) {
+  const value = Number(row?.[index]);
+  return Number.isFinite(value) ? value : 0;
+}
+
 export async function analyticsHandler(request: Request) {
   if (request.method !== 'GET') {
     return Response.json({ error: 'Method not allowed.' }, { status: 405 });
@@ -71,31 +82,106 @@ export async function analyticsHandler(request: Request) {
   }
 
   try {
-    const [topEvents, pageviewsByDay] = await Promise.all([
-      runHogQLQuery(
-        `SELECT event, count() AS total
-         FROM events
-         WHERE timestamp > now() - INTERVAL 7 DAY
-         GROUP BY event
-         ORDER BY total DESC
-         LIMIT 15`,
-        'admin top events 7d',
-      ),
-      runHogQLQuery(
-        `SELECT toDate(timestamp) AS day, count() AS pageviews
-         FROM events
-         WHERE event = '$pageview'
-           AND timestamp > now() - INTERVAL 14 DAY
-         GROUP BY day
-         ORDER BY day`,
-        'admin pageviews by day 14d',
-      ),
-    ]);
+    const [summaryRows, topEvents, pageviewsByDay, byCountry, byDevice, byBrowser, byCity] =
+      await Promise.all([
+        runHogQLQuery(
+          `SELECT
+             countIf(event = '$pageview') AS pageviews,
+             count(DISTINCT distinct_id) AS visitors,
+             uniq(properties.$geoip_country_code) AS countries
+           FROM events
+           WHERE timestamp > now() - INTERVAL 14 DAY`,
+          'admin summary 14d',
+        ),
+        runHogQLQuery(
+          `SELECT event, count() AS total
+           FROM events
+           WHERE timestamp > now() - INTERVAL 7 DAY
+           GROUP BY event
+           ORDER BY total DESC
+           LIMIT 12`,
+          'admin top events 7d',
+        ),
+        runHogQLQuery(
+          `SELECT toDate(timestamp) AS day, count() AS pageviews
+           FROM events
+           WHERE event = '$pageview'
+             AND timestamp > now() - INTERVAL 14 DAY
+           GROUP BY day
+           ORDER BY day`,
+          'admin pageviews by day 14d',
+        ),
+        runHogQLQuery(
+          `SELECT
+             coalesce(nullIf(properties.$geoip_country_code, ''), '??') AS country,
+             coalesce(nullIf(properties.$geoip_country_name, ''), 'Unknown') AS country_name,
+             count() AS pageviews,
+             count(DISTINCT distinct_id) AS visitors
+           FROM events
+           WHERE event = '$pageview'
+             AND timestamp > now() - INTERVAL 14 DAY
+           GROUP BY country, country_name
+           ORDER BY pageviews DESC
+           LIMIT 20`,
+          'admin countries 14d',
+        ),
+        runHogQLQuery(
+          `SELECT
+             coalesce(nullIf(properties.$device_type, ''), 'Unknown') AS device,
+             count() AS pageviews,
+             count(DISTINCT distinct_id) AS visitors
+           FROM events
+           WHERE event = '$pageview'
+             AND timestamp > now() - INTERVAL 14 DAY
+           GROUP BY device
+           ORDER BY pageviews DESC
+           LIMIT 10`,
+          'admin devices 14d',
+        ),
+        runHogQLQuery(
+          `SELECT
+             coalesce(nullIf(properties.$browser, ''), 'Unknown') AS browser,
+             count() AS pageviews
+           FROM events
+           WHERE event = '$pageview'
+             AND timestamp > now() - INTERVAL 14 DAY
+           GROUP BY browser
+           ORDER BY pageviews DESC
+           LIMIT 10`,
+          'admin browsers 14d',
+        ),
+        runHogQLQuery(
+          `SELECT
+             coalesce(nullIf(properties.$geoip_city_name, ''), 'Unknown city') AS city,
+             coalesce(nullIf(properties.$geoip_country_code, ''), '??') AS country,
+             count() AS pageviews
+           FROM events
+           WHERE event = '$pageview'
+             AND timestamp > now() - INTERVAL 14 DAY
+           GROUP BY city, country
+           ORDER BY pageviews DESC
+           LIMIT 12`,
+          'admin cities 14d',
+        ),
+      ]);
+
+    const summaryRow = summaryRows.results[0];
+    const summary: AnalyticsSummary = {
+      pageviews: numberCell(summaryRow, 0),
+      visitors: numberCell(summaryRow, 1),
+      countries: numberCell(summaryRow, 2),
+    };
 
     return Response.json({
       generatedAt: new Date().toISOString(),
+      windowDays: 14,
+      summary,
       topEvents,
       pageviewsByDay,
+      byCountry,
+      byDevice,
+      byBrowser,
+      byCity,
     });
   } catch (error) {
     const message =

@@ -3,10 +3,22 @@ export type AnalyticsTable = {
   results: unknown[][];
 };
 
+export type AnalyticsSummary = {
+  pageviews: number;
+  visitors: number;
+  countries: number;
+};
+
 export type AnalyticsDashboard = {
   generatedAt: string;
+  windowDays: number;
+  summary: AnalyticsSummary;
   topEvents: AnalyticsTable;
   pageviewsByDay: AnalyticsTable;
+  byCountry: AnalyticsTable;
+  byDevice: AnalyticsTable;
+  byBrowser: AnalyticsTable;
+  byCity: AnalyticsTable;
 };
 
 function adminHeaders() {

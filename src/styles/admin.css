@@ -21,7 +21,7 @@
   }
 
   .admin-shell {
-    @apply mx-auto flex min-h-svh w-full max-w-3xl flex-col gap-4 bg-background px-4 py-8 sm:px-6;
+    @apply mx-auto flex min-h-svh w-full max-w-4xl flex-col gap-4 bg-background px-4 py-8 sm:px-6;
   }
 
   .admin-header {
@@ -113,15 +113,112 @@
   }
 
   .admin-analytics {
-    @apply grid gap-5;
+    @apply grid gap-6;
   }
 
   .admin-analytics-section {
     @apply grid gap-3;
   }
 
+  .admin-analytics-heading-row {
+    @apply flex items-center gap-2;
+  }
+
+  .admin-analytics-heading-icon {
+    @apply size-4 text-muted-foreground;
+  }
+
   .admin-analytics-heading {
     @apply text-sm font-medium;
+  }
+
+  .admin-analytics-stats {
+    @apply grid gap-3 sm:grid-cols-3;
+  }
+
+  .admin-analytics-stat {
+    @apply flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3;
+  }
+
+  .admin-analytics-stat-icon {
+    @apply size-5 shrink-0 text-muted-foreground;
+  }
+
+  .admin-analytics-stat-label {
+    @apply text-xs text-muted-foreground;
+  }
+
+  .admin-analytics-stat-value {
+    @apply text-xl font-medium tabular-nums tracking-tight;
+  }
+
+  .admin-analytics-split {
+    @apply grid gap-6 md:grid-cols-2;
+  }
+
+  .admin-analytics-map {
+    @apply overflow-hidden rounded-xl border border-border bg-muted/30 text-foreground;
+  }
+
+  .admin-analytics-map svg {
+    @apply block h-auto w-full;
+  }
+
+  .admin-analytics-map-land {
+    @apply fill-muted-foreground/25;
+  }
+
+  .admin-analytics-map-halo {
+    @apply fill-foreground/10;
+  }
+
+  .admin-analytics-map-dot {
+    @apply fill-foreground/70;
+  }
+
+  .admin-analytics-map-flag {
+    @apply pointer-events-none text-[18px];
+  }
+
+  .admin-analytics-map-empty {
+    @apply px-4 pb-4;
+  }
+
+  .admin-analytics-country-list,
+  .admin-analytics-device-list,
+  .admin-analytics-city-list {
+    @apply grid gap-3;
+  }
+
+  .admin-analytics-country-row,
+  .admin-analytics-device-row,
+  .admin-analytics-city-row {
+    @apply grid grid-cols-[2.5rem_1fr] items-start gap-3;
+  }
+
+  .admin-analytics-flag {
+    @apply text-2xl leading-none;
+  }
+
+  .admin-analytics-device-icon {
+    @apply flex size-10 items-center justify-center rounded-lg border border-border bg-card text-foreground;
+  }
+
+  .admin-analytics-device-icon svg {
+    @apply size-5;
+  }
+
+  .admin-analytics-country-meta,
+  .admin-analytics-device-meta {
+    @apply grid gap-1.5;
+  }
+
+  .admin-analytics-country-topline {
+    @apply flex items-center justify-between gap-3 text-sm;
+  }
+
+  .admin-analytics-code {
+    @apply font-mono text-xs text-muted-foreground uppercase;
   }
 
   .admin-analytics-bars {
