@@ -26,9 +26,10 @@ export function getSql() {
 }
 
 export function adminPin() {
-  return process.env.ADMIN_PIN || '1234';
+  return (process.env.ADMIN_PIN || '1234').trim();
 }
 
 export function hasAdminPin(request: Request) {
-  return request.headers.get('x-admin-pin') === adminPin();
+  const provided = (request.headers.get('x-admin-pin') || '').trim();
+  return provided.length > 0 && provided === adminPin();
 }

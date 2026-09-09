@@ -304,11 +304,12 @@ function AdminLogin({ onUnlock }: { onUnlock: () => void }) {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (await unlockAdmin(pin)) {
+    const result = await unlockAdmin(pin);
+    if (result.ok) {
       onUnlock();
       return;
     }
-    setError('That PIN is not correct.');
+    setError(result.message);
     setPin('');
   }
 

@@ -70,11 +70,28 @@ export async function removeSiteRecord(slug: string) {
 
 export async function unlockAdmin(pin: string) {
   const response = await fetch('/api/sites?all=1', {
-    headers: { 'x-admin-pin': pin },
+    headers: { 'x-admin-pin': pin.trim() },
   });
-  if (!response.ok) {
-    return false;
+
+  if (response.ok) {
+    storeAdminPin(pin.trim());
+    return { ok: true as const };
   }
-  storeAdminPin(pin);
-  return true;
+
+  if (response.status === 401) {
+    return { ok: false as const, message: 'That PIN is not correct.' };
+  }
+
+  let message = `Unlock failed (${response.status}).`;
+  try {
+    const payload = (await response.json()) as { error?: string };
+    if (payload.error) {
+      message = payload.error;
+    }
+  } catch {
+    message =
+      'Unlock failed. The admin API may be blocked by Vercel Authentication.';
+  }
+
+  return { ok: false as const, message };
 }
