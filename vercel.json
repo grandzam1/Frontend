@@ -4,11 +4,11 @@
   "functions": {
     "api/sites.ts": {
       "maxDuration": 30,
-      "includeFiles": "api/lib/**"
+      "includeFiles": "api/_lib/**"
     },
     "api/can-embed.ts": {
       "maxDuration": 30,
-      "includeFiles": "api/lib/**"
+      "includeFiles": "api/_lib/**"
     }
   },
   "rewrites": [

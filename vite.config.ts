@@ -3,8 +3,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import { canEmbedHandler } from './api/lib/can-embed-handler';
-import { sitesHandler } from './api/lib/sites-handler';
+import { canEmbedHandler } from './api/_lib/can-embed-handler';
+import { sitesHandler } from './api/_lib/sites-handler';
 
 function readBody(req: IncomingMessage) {
   if (req.method === 'GET' || req.method === 'HEAD') {

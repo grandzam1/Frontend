@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { sitesHandler } from './lib/sites-handler.js';
+import { sitesHandler } from './_lib/sites-handler.js';
 
 async function readBody(req: IncomingMessage) {
   if (req.method === 'GET' || req.method === 'HEAD') {

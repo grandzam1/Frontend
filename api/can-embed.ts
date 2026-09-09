@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { canEmbedHandler } from './lib/can-embed-handler.js';
+import { canEmbedHandler } from './_lib/can-embed-handler.js';
 
 export default async function handler(
   req: IncomingMessage,
