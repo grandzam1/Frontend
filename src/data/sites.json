@@ -5,6 +5,9 @@
     "url": "https://spacex.starstruckinfo.net/zam",
     "description": "The original Zam experience.",
     "published": true,
-    "isDefault": true
+    "isDefault": true,
+    "embeddable": true,
+    "embedCheckedAt": "2026-09-09T11:10:37.000Z",
+    "embedReason": "No X-Frame-Options or CSP frame-ancestors header"
   }
 ]

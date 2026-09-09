@@ -1,16 +1,102 @@
 import path from 'node:path';
-import { defineConfig } from 'vite';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+import { canEmbedHandler } from './src/lib/server/can-embed-handler';
+import { sitesHandler } from './src/lib/server/sites-handler';
 
-export default defineConfig({
-  plugins: [react()],
-  resolve: {
-    alias: {
-      '@': path.resolve(import.meta.dirname, 'src'),
+function readBody(req: IncomingMessage) {
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    return Promise.resolve(undefined);
+  }
+
+  return new Promise<string | undefined>((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk) => chunks.push(chunk as Buffer));
+    req.on('end', () => {
+      resolve(Buffer.concat(chunks).toString('utf8') || undefined);
+    });
+    req.on('error', reject);
+  });
+}
+
+function apiPlugin(): Plugin {
+  async function handle(req: IncomingMessage, res: ServerResponse) {
+    const headers = new Headers();
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (Array.isArray(value)) {
+        value.forEach((item) => headers.append(key, item));
+      } else if (value) {
+        headers.set(key, value);
+      }
+    }
+
+    const body = await readBody(req);
+    const request = new Request(`http://127.0.0.1${req.url ?? '/'}`, {
+      method: req.method,
+      headers,
+      body,
+      ...(body ? { duplex: 'half' } : {}),
+    } as RequestInit);
+
+    const pathname = new URL(request.url).pathname;
+    const response =
+      pathname === '/api/sites'
+        ? await sitesHandler(request)
+        : pathname === '/api/can-embed'
+          ? await canEmbedHandler(request)
+          : new Response(JSON.stringify({ error: 'Not found.' }), { status: 404 });
+
+    res.statusCode = response.status;
+    response.headers.forEach((value, key) => {
+      res.setHeader(key, value);
+    });
+    res.end(await response.text());
+  }
+
+  return {
+    name: 'neon-api',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (!req.url?.startsWith('/api/')) {
+          next();
+          return;
+        }
+        void handle(req, res).catch(next);
+      });
     },
-  },
-  build: {
-    outDir: 'dist',
-    emptyOutDir: true,
-  },
+    configurePreviewServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (!req.url?.startsWith('/api/')) {
+          next();
+          return;
+        }
+        void handle(req, res).catch(next);
+      });
+    },
+  };
+}
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '');
+  if (env.DATABASE_URL) {
+    process.env.DATABASE_URL = env.DATABASE_URL;
+  }
+  if (env.ADMIN_PIN) {
+    process.env.ADMIN_PIN = env.ADMIN_PIN;
+  }
+
+  return {
+    plugins: [react(), tailwindcss(), apiPlugin()],
+    resolve: {
+      alias: {
+        '@': path.resolve(import.meta.dirname, 'src'),
+      },
+    },
+    build: {
+      outDir: 'dist',
+      emptyOutDir: true,
+    },
+  };
 });

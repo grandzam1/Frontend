@@ -37,12 +37,14 @@ function toError(value: unknown): Error {
 
 function DefaultFallback({ error, resetError }: ErrorFallbackProps) {
   return (
-    <main className="viewer viewer--fallback">
+    <main className="viewer-root viewer--fallback">
       <div className="viewer__fallback">
         <div className="viewer__fallback-inner">
           <p className="viewer__fallback-message">Something went wrong.</p>
           {import.meta.env.DEV ? (
-            <pre className="admin-error">{error.message || String(error)}</pre>
+            <pre className="max-w-full overflow-auto rounded-lg border border-destructive/30 bg-destructive/10 p-2 text-left text-xs text-destructive">
+              {error.message || String(error)}
+            </pre>
           ) : null}
           <button
             className="viewer__fallback-link"

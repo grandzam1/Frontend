@@ -1,13 +1,46 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ChangeEvent,
   type FormEvent,
   type ReactNode,
 } from 'react';
 import { ErrorBoundary } from '@/components/error-boundary';
-import initialSites from './data/sites.json';
+import { canEmbed, type EmbedCheckResult } from '@/lib/can-embed';
+import type { Site } from '@/lib/site';
+import {
+  clearAdminPin,
+  fetchAllSites,
+  fetchPublishedSites,
+  persistSites,
+  unlockAdmin,
+} from '@/lib/sites-api';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { ExternalLink, LayoutList } from 'lucide-react';
 import {
   Route,
   Switch,
@@ -15,42 +48,6 @@ import {
   useRoute,
   Router as WouterRouter,
 } from 'wouter';
-
-const ADMIN_PIN = '1234';
-const DRAFT_STORAGE_KEY = 'zam-viewer-sites-draft-v1';
-
-type Site = {
-  slug: string;
-  name: string;
-  url: string;
-  description: string;
-  published: boolean;
-  isDefault?: boolean;
-};
-
-const INITIAL_SITES = initialSites as Site[];
-
-function cloneInitialSites() {
-  return INITIAL_SITES.map((site) => ({ ...site }));
-}
-
-function readSites() {
-  if (typeof window === 'undefined') {
-    return cloneInitialSites();
-  }
-
-  try {
-    const stored = window.localStorage.getItem(DRAFT_STORAGE_KEY);
-    if (!stored) {
-      return cloneInitialSites();
-    }
-
-    const parsed = JSON.parse(stored);
-    return Array.isArray(parsed) ? (parsed as Site[]) : cloneInitialSites();
-  } catch {
-    return cloneInitialSites();
-  }
-}
 
 function getDefaultSite(sites: Site[]) {
   return (
@@ -68,52 +65,69 @@ function normalizeSiteUrl(value: string) {
   return url.toString().replace(/\/$/, '');
 }
 
-function Viewer({ site }: { site?: Site }) {
-  const [isLoaded, setIsLoaded] = useState(false);
-  const [hasFailed, setHasFailed] = useState(false);
+function slugify(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
 
-  useEffect(() => {
-    setIsLoaded(false);
-    setHasFailed(false);
-  }, [site?.url]);
+function titleCase(value: string) {
+  return value
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
 
-  useEffect(() => {
-    if (isLoaded || !site) {
-      return;
+function suggestFromUrl(value: string) {
+  try {
+    const url = new URL(value.trim());
+    if (url.protocol !== 'https:') {
+      return null;
     }
 
-    const timeoutId = window.setTimeout(() => {
-      setHasFailed(true);
-    }, 15000);
+    const lastSegment = url.pathname
+      .split('/')
+      .filter(Boolean)
+      .at(-1)
+      ?.replace(/\.[a-z0-9]{2,4}$/i, '');
+    const hostLabel = url.hostname.replace(/^www\./, '').split('.')[0] ?? '';
+    const name = titleCase(decodeURIComponent(lastSegment || hostLabel));
+    const slug = slugify(name);
 
-    return () => window.clearTimeout(timeoutId);
-  }, [isLoaded, site]);
+    if (!name || !slug) {
+      return null;
+    }
 
-  if (!site) {
-    return (
-      <main className="viewer viewer--fallback">
-        <div className="viewer__fallback">
-          <div className="viewer__fallback-inner">
-            <p className="viewer__fallback-message">
-              No published pages are available yet.
-            </p>
-            <a className="viewer__fallback-link" href="/admin">
-              Open admin
-            </a>
-          </div>
-        </div>
-      </main>
-    );
+    return { name, slug };
+  } catch {
+    return null;
   }
+}
 
-  if (hasFailed) {
-    return (
-      <main className="viewer viewer--fallback" data-testid="viewer-fallback">
-        <div className="viewer__fallback">
-          <div className="viewer__fallback-inner">
-            <p className="viewer__fallback-message">
-              This page could not be loaded inside the viewer.
-            </p>
+function previewHref(value: string) {
+  try {
+    return normalizeSiteUrl(value);
+  } catch {
+    return null;
+  }
+}
+
+function ViewerFallback({
+  site,
+  message,
+}: {
+  site?: Site;
+  message: string;
+}) {
+  return (
+    <main className="viewer-root viewer--fallback" data-testid="viewer-fallback">
+      <div className="viewer__fallback">
+        <div className="viewer__fallback-inner">
+          <p className="viewer__fallback-message">{message}</p>
+          {site ? (
             <a
               className="viewer__fallback-link"
               data-testid="link-source-page"
@@ -123,7 +137,85 @@ function Viewer({ site }: { site?: Site }) {
             >
               Open the original page
             </a>
-          </div>
+          ) : (
+            <a className="viewer__fallback-link" href="/admin">
+              Open admin
+            </a>
+          )}
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function Viewer({ site }: { site?: Site }) {
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [hasFailed, setHasFailed] = useState(false);
+  const [embeddable, setEmbeddable] = useState<boolean | null>(() =>
+    typeof site?.embeddable === 'boolean' ? site.embeddable : null,
+  );
+
+  useEffect(() => {
+    setIsLoaded(false);
+    setHasFailed(false);
+    setEmbeddable(typeof site?.embeddable === 'boolean' ? site.embeddable : null);
+  }, [site?.url, site?.embeddable]);
+
+  useEffect(() => {
+    if (!site) {
+      return;
+    }
+
+    let cancelled = false;
+    canEmbed(site.url)
+      .then((result) => {
+        if (!cancelled) {
+          setEmbeddable(result.embeddable);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setEmbeddable((current) => current ?? true);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [site?.url]);
+
+  useEffect(() => {
+    if (isLoaded || !site || embeddable === false) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setHasFailed(true);
+    }, 15000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [isLoaded, site, embeddable]);
+
+  if (!site) {
+    return (
+      <ViewerFallback message="No published pages are available yet." />
+    );
+  }
+
+  if (embeddable === false || hasFailed) {
+    return (
+      <ViewerFallback
+        site={site}
+        message="This page could not be loaded inside the viewer."
+      />
+    );
+  }
+
+  if (embeddable !== true) {
+    return (
+      <main className="viewer-root" data-testid="zam-viewer" aria-busy="true">
+        <div className="viewer__veil" data-testid="loading-state" role="status" aria-label="Loading">
+          <span className="viewer__pulse" aria-hidden="true" />
         </div>
       </main>
     );
@@ -131,7 +223,7 @@ function Viewer({ site }: { site?: Site }) {
 
   return (
     <main
-      className="viewer"
+      className="viewer-root"
       data-testid="zam-viewer"
       aria-busy={!isLoaded}
     >
@@ -158,19 +250,50 @@ function Viewer({ site }: { site?: Site }) {
 }
 
 function PublicSite({ slug }: { slug?: string }) {
-  const [sites, setSites] = useState<Site[]>(readSites);
+  const [sites, setSites] = useState<Site[]>([]);
+  const [ready, setReady] = useState(false);
   const site = useMemo(() => {
+    if (!ready) {
+      return undefined;
+    }
     if (slug) {
       return sites.find((candidate) => candidate.slug === slug && candidate.published);
     }
     return getDefaultSite(sites);
-  }, [sites, slug]);
+  }, [sites, slug, ready]);
 
   useEffect(() => {
-    const refresh = () => setSites(readSites());
-    window.addEventListener('storage', refresh);
-    return () => window.removeEventListener('storage', refresh);
+    let cancelled = false;
+    fetchPublishedSites()
+      .then((nextSites) => {
+        if (!cancelled) {
+          setSites(nextSites);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSites([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setReady(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  if (!ready) {
+    return (
+      <main className="viewer-root" aria-busy="true">
+        <div className="viewer__veil" role="status" aria-label="Loading">
+          <span className="viewer__pulse" aria-hidden="true" />
+        </div>
+      </main>
+    );
+  }
 
   return <Viewer site={site} />;
 }
@@ -179,10 +302,9 @@ function AdminLogin({ onUnlock }: { onUnlock: () => void }) {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (pin === ADMIN_PIN) {
-      window.sessionStorage.setItem('zam-viewer-admin-unlocked', 'true');
+    if (await unlockAdmin(pin)) {
       onUnlock();
       return;
     }
@@ -191,39 +313,49 @@ function AdminLogin({ onUnlock }: { onUnlock: () => void }) {
   }
 
   return (
-    <main className="admin-shell admin-shell--login">
-      <section className="admin-login-card">
-        <div className="admin-eyebrow">Zam Viewer</div>
-        <h1>Page manager</h1>
-        <p className="admin-muted">
-          Enter the admin PIN to manage the pages included in the next
-          deployment.
-        </p>
-        <form className="admin-login-form" onSubmit={handleSubmit}>
-          <label htmlFor="admin-pin">Admin PIN</label>
-          <input
-            id="admin-pin"
-            inputMode="numeric"
-            autoComplete="off"
-            maxLength={4}
-            type="password"
-            value={pin}
-            onChange={(event) => {
-              setPin(event.target.value.replace(/\D/g, ''));
-              setError('');
-            }}
-            placeholder="••••"
-          />
-          {error ? <p className="admin-error">{error}</p> : null}
-          <button className="admin-button admin-button--primary" type="submit">
-            Unlock admin
-          </button>
-        </form>
-        <p className="admin-warning">
-          This is a convenience PIN, not strong security. Anyone who can
-          inspect the published app can discover it.
-        </p>
-      </section>
+    <main className="admin-login">
+      <Card className="admin-login-card">
+        <CardHeader>
+          <CardDescription>Zam Viewer</CardDescription>
+          <CardTitle className="admin-login-title">Page manager</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="admin-login-copy">
+            Enter the admin PIN to manage pages stored in Neon.
+          </p>
+          <form className="admin-form" onSubmit={handleSubmit}>
+            <div className="admin-field">
+              <Label htmlFor="admin-pin">Admin PIN</Label>
+              <Input
+                id="admin-pin"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={4}
+                type="password"
+                value={pin}
+                onChange={(event) => {
+                  setPin(event.target.value.replace(/\D/g, ''));
+                  setError('');
+                }}
+                placeholder="••••"
+              />
+            </div>
+            {error ? (
+              <Alert variant="destructive">
+                <AlertTitle>Could not unlock</AlertTitle>
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            ) : null}
+            <Button type="submit">Unlock admin</Button>
+          </form>
+        </CardContent>
+        <CardFooter>
+          <p className="admin-login-warning">
+            This is a convenience PIN, not strong security. Anyone who can
+            inspect the published app can discover it.
+          </p>
+        </CardFooter>
+      </Card>
     </main>
   );
 }
@@ -235,7 +367,9 @@ function Admin() {
       typeof window !== 'undefined' &&
       window.sessionStorage.getItem('zam-viewer-admin-unlocked') === 'true',
   );
-  const [sites, setSites] = useState<Site[]>(readSites);
+  const [sites, setSites] = useState<Site[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [editingSlug, setEditingSlug] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: '',
@@ -246,18 +380,144 @@ function Admin() {
   });
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [embedCheck, setEmbedCheck] = useState<EmbedCheckResult | null>(null);
+  const [embedChecking, setEmbedChecking] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const lastSuggestedNameRef = useRef('');
 
   const editingSite = sites.find((site) => site.slug === editingSlug);
+  const sourcePreview = previewHref(form.url);
+  const publicSlug = slugify(form.slug);
+  const urlSuggestion = suggestFromUrl(form.url);
+  const nameSuggestions = [...new Set(sites.map((site) => site.name))];
+  const urlSuggestions = [...new Set(sites.map((site) => site.url))];
 
-  function updateSites(nextSites: Site[], nextNotice = '') {
-    setSites(nextSites);
-    window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(nextSites, null, 2));
-    setNotice(nextNotice);
+  function applyUrlToForm(
+    url: string,
+    { overwrite }: { overwrite: boolean },
+  ) {
+    const suggestion = suggestFromUrl(url);
+
+    setForm((current) => {
+      const next = { ...current, url };
+      if (!suggestion) {
+        return next;
+      }
+
+      const nameWasSuggested =
+        overwrite ||
+        !current.name.trim() ||
+        current.name === lastSuggestedNameRef.current;
+      const slugWasSuggested =
+        !editingSlug &&
+        (overwrite ||
+          !current.slug.trim() ||
+          current.slug === slugify(current.name));
+
+      if (nameWasSuggested) {
+        next.name = suggestion.name;
+        lastSuggestedNameRef.current = suggestion.name;
+      }
+      if (slugWasSuggested) {
+        next.slug = suggestion.slug;
+      }
+
+      return next;
+    });
     setError('');
+  }
+
+  useEffect(() => {
+    if (!sourcePreview) {
+      setEmbedCheck(null);
+      setEmbedChecking(false);
+      return;
+    }
+
+    let cancelled = false;
+    setEmbedChecking(true);
+    const timeoutId = window.setTimeout(() => {
+      canEmbed(sourcePreview)
+        .then((result) => {
+          if (!cancelled) {
+            setEmbedCheck(result);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setEmbedCheck(null);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setEmbedChecking(false);
+          }
+        });
+    }, 400);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [sourcePreview]);
+
+  useEffect(() => {
+    if (!unlocked) {
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    fetchAllSites()
+      .then((nextSites) => {
+        if (!cancelled) {
+          setSites(nextSites);
+          setError('');
+        }
+      })
+      .catch((loadError) => {
+        if (cancelled) {
+          return;
+        }
+        const message =
+          loadError instanceof Error ? loadError.message : 'Could not load pages.';
+        setError(message);
+        if (/admin pin|401|unauthorized/i.test(message)) {
+          clearAdminPin();
+          setUnlocked(false);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [unlocked]);
+
+  async function updateSites(nextSites: Site[], nextNotice = '') {
+    setSaving(true);
+    try {
+      const saved = await persistSites(nextSites);
+      setSites(saved);
+      setNotice(nextNotice);
+      setError('');
+      return true;
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Could not save pages.');
+      return false;
+    } finally {
+      setSaving(false);
+    }
   }
 
   function resetForm() {
     setEditingSlug(null);
+    lastSuggestedNameRef.current = '';
+    setEmbedCheck(null);
     setForm({
       name: '',
       slug: '',
@@ -281,7 +541,7 @@ function Admin() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  function handleSiteSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSiteSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError('');
 
@@ -311,6 +571,13 @@ function Admin() {
       return;
     }
 
+    let embed: EmbedCheckResult | null = null;
+    try {
+      embed = await canEmbed(url);
+    } catch {
+      embed = null;
+    }
+
     const nextSite: Site = {
       slug,
       name,
@@ -318,34 +585,45 @@ function Admin() {
       description: form.description.trim(),
       published: form.published,
       isDefault: editingSite?.isDefault ?? sites.length === 0,
+      embeddable: embed?.embeddable,
+      embedCheckedAt: embed?.checkedAt,
+      embedReason: embed?.reason,
     };
 
     const nextSites = editingSlug
       ? sites.map((site) => (site.slug === editingSlug ? nextSite : site))
       : [...sites, nextSite];
 
-    updateSites(nextSites, editingSlug ? 'Page updated in local draft.' : 'Page added to local draft.');
-    resetForm();
+    const saved = await updateSites(
+      nextSites,
+      editingSlug ? 'Page updated in Neon.' : 'Page added in Neon.',
+    );
+    if (saved) {
+      resetForm();
+    }
   }
 
-  function togglePublished(site: Site) {
+  async function togglePublished(site: Site) {
     const nextSites = sites.map((candidate) =>
       candidate.slug === site.slug
         ? { ...candidate, published: !candidate.published }
         : candidate,
     );
-    updateSites(nextSites, `${site.name} is now ${site.published ? 'unpublished' : 'published'}.`);
+    await updateSites(
+      nextSites,
+      `${site.name} is now ${site.published ? 'unpublished' : 'published'}.`,
+    );
   }
 
-  function setDefault(site: Site) {
+  async function setDefault(site: Site) {
     const nextSites = sites.map((candidate) => ({
       ...candidate,
       isDefault: candidate.slug === site.slug,
     }));
-    updateSites(nextSites, `${site.name} is now the default page.`);
+    await updateSites(nextSites, `${site.name} is now the default page.`);
   }
 
-  function removeSite(site: Site) {
+  async function removeSite(site: Site) {
     if (!window.confirm(`Remove ${site.name} from the page list?`)) {
       return;
     }
@@ -354,8 +632,8 @@ function Admin() {
     if (site.isDefault && remaining[0]) {
       remaining[0] = { ...remaining[0], isDefault: true };
     }
-    updateSites(remaining, `${site.name} was removed from the local draft.`);
-    if (editingSlug === site.slug) {
+    const saved = await updateSites(remaining, `${site.name} was removed.`);
+    if (saved && editingSlug === site.slug) {
       resetForm();
     }
   }
@@ -370,7 +648,7 @@ function Admin() {
     link.download = 'sites.json';
     link.click();
     URL.revokeObjectURL(url);
-    setNotice('Downloaded sites.json. Replace the project file and redeploy.');
+    setNotice('Downloaded a backup of the pages stored in Neon.');
   }
 
   function importJson(event: ChangeEvent<HTMLInputElement>) {
@@ -380,13 +658,13 @@ function Admin() {
     }
 
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       try {
         const parsed = JSON.parse(String(reader.result));
         if (!Array.isArray(parsed)) {
           throw new Error('The JSON must contain an array.');
         }
-        updateSites(parsed as Site[], 'Imported a local sites.json draft.');
+        await updateSites(parsed as Site[], 'Imported pages into Neon.');
       } catch {
         setError('That file is not a valid sites.json array.');
       }
@@ -403,169 +681,329 @@ function Admin() {
     <main className="admin-shell">
       <header className="admin-header">
         <div>
-          <div className="admin-eyebrow">Zam Viewer</div>
-          <h1>Page manager</h1>
+          <p className="admin-eyebrow">
+            Zam Viewer
+          </p>
+          <h1 className="admin-title">Page manager</h1>
         </div>
-        <button
-          className="admin-button admin-button--quiet"
+        <Button
           type="button"
+          variant="outline"
           onClick={() => {
-            window.sessionStorage.removeItem('zam-viewer-admin-unlocked');
+            clearAdminPin();
             setUnlocked(false);
+            setSites([]);
           }}
         >
           Lock
-        </button>
+        </Button>
       </header>
 
-      <section className="admin-notice">
-        <strong>Local JSON workflow</strong>
-        <p>
-          Changes are saved in this browser as a draft. Download the JSON,
-          replace <code>src/data/sites.json</code>, then redeploy on Vercel.
-        </p>
-      </section>
+      <Alert>
+        <AlertTitle>Stored in Neon</AlertTitle>
+        <AlertDescription>
+          Pages, publish state, and iframe checks are saved in Postgres. Visitors
+          see the published list immediately — no redeploy.
+        </AlertDescription>
+      </Alert>
 
-      {notice ? <div className="admin-feedback">{notice}</div> : null}
-      {error ? <div className="admin-feedback admin-feedback--error">{error}</div> : null}
+      {notice ? (
+        <Alert>
+          <AlertTitle>Saved</AlertTitle>
+          <AlertDescription>{notice}</AlertDescription>
+        </Alert>
+      ) : null}
+      {error ? (
+        <Alert variant="destructive">
+          <AlertTitle>Check the form</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
 
-      <section className="admin-card">
-        <div className="admin-card-heading">
-          <div>
-            <div className="admin-eyebrow">{editingSlug ? 'Edit page' : 'Add page'}</div>
-            <h2>{editingSlug ? editingSite?.name : 'New embedded page'}</h2>
-          </div>
+      <Card>
+        <CardHeader>
+          <CardDescription>{editingSlug ? 'Edit page' : 'Add page'}</CardDescription>
+          <CardTitle>{editingSlug ? editingSite?.name : 'New embedded page'}</CardTitle>
           {editingSlug ? (
-            <button className="admin-text-button" type="button" onClick={resetForm}>
-              Cancel
-            </button>
+            <CardAction>
+              <Button type="button" variant="ghost" size="sm" onClick={resetForm}>
+                Cancel
+              </Button>
+            </CardAction>
           ) : null}
-        </div>
-        <form className="admin-form" onSubmit={handleSiteSubmit}>
-          <label>
-            Page name
-            <input
-              value={form.name}
-              onChange={(event) => setForm({ ...form, name: event.target.value })}
-              placeholder="Zam"
-            />
-          </label>
-          <label>
-            Public slug
-            <input
-              value={form.slug}
-              onChange={(event) => setForm({ ...form, slug: event.target.value })}
-              placeholder="zam"
-            />
-            <span className="admin-field-help">Public URL: /view/your-slug</span>
-          </label>
-          <label>
-            Source URL
-            <input
-              type="url"
-              value={form.url}
-              onChange={(event) => setForm({ ...form, url: event.target.value })}
-              placeholder="https://example.com/page"
-            />
-          </label>
-          <label>
-            Short description
-            <textarea
-              rows={3}
-              value={form.description}
-              onChange={(event) => setForm({ ...form, description: event.target.value })}
-              placeholder="Optional note for the page list."
-            />
-          </label>
-          <label className="admin-checkbox">
-            <input
-              type="checkbox"
-              checked={form.published}
-              onChange={(event) => setForm({ ...form, published: event.target.checked })}
-            />
-            Published and visible to visitors
-          </label>
-          <button className="admin-button admin-button--primary" type="submit">
-            {editingSlug ? 'Save page draft' : 'Add page'}
-          </button>
-        </form>
-      </section>
+        </CardHeader>
+        <CardContent>
+          <form className="admin-form" onSubmit={handleSiteSubmit}>
+            <div className="admin-form-row">
+              <div className="admin-field">
+                <Label htmlFor="admin-page-name">Page name</Label>
+                <Input
+                  id="admin-page-name"
+                  list="admin-name-suggestions"
+                  value={form.name}
+                  onChange={(event) => {
+                    const name = event.target.value;
+                    lastSuggestedNameRef.current = '';
+                    setForm((current) => ({
+                      ...current,
+                      name,
+                      slug:
+                        editingSlug ||
+                        (current.slug && current.slug !== slugify(current.name))
+                          ? current.slug
+                          : slugify(name),
+                    }));
+                  }}
+                  placeholder="Zam"
+                  autoComplete="off"
+                />
+                <p className="admin-field-help">
+                  Shown in the page list. Fills from the source URL if left empty.
+                </p>
+                <datalist id="admin-name-suggestions">
+                  {nameSuggestions.map((name) => (
+                    <option key={name} value={name} />
+                  ))}
+                </datalist>
+              </div>
+              <div className="admin-field">
+                <Label htmlFor="admin-page-slug">Public slug</Label>
+                <Input
+                  id="admin-page-slug"
+                  value={form.slug}
+                  onChange={(event) =>
+                    setForm({ ...form, slug: event.target.value.toLowerCase() })
+                  }
+                  placeholder="zam"
+                  autoComplete="off"
+                />
+                <p className="admin-field-help">
+                  Public URL: /view/{form.slug.trim() || 'your-slug'}
+                </p>
+              </div>
+            </div>
+            <div className="admin-field">
+              <div className="admin-field-topline">
+                <Label htmlFor="admin-source-url">Source URL</Label>
+                <div className="admin-field-actions">
+                  {sourcePreview ? (
+                    <Button variant="link" size="sm" className="admin-inline-link" asChild>
+                      <a href={sourcePreview} target="_blank" rel="noreferrer">
+                        Preview site
+                        <ExternalLink />
+                      </a>
+                    </Button>
+                  ) : null}
+                  <Button
+                    variant="link"
+                    size="sm"
+                    type="button"
+                    className="admin-inline-link"
+                    disabled={!urlSuggestion}
+                    onClick={() => applyUrlToForm(form.url, { overwrite: true })}
+                  >
+                    Autofill
+                  </Button>
+                  {embedChecking ? (
+                    <Badge variant="outline">Checking embed</Badge>
+                  ) : embedCheck ? (
+                    <Badge variant={embedCheck.embeddable ? 'secondary' : 'destructive'}>
+                      {embedCheck.embeddable ? 'Can embed' : 'Cannot iframe'}
+                    </Badge>
+                  ) : null}
+                </div>
+              </div>
+              <Input
+                id="admin-source-url"
+                type="url"
+                list="admin-url-suggestions"
+                value={form.url}
+                onChange={(event) =>
+                  applyUrlToForm(event.target.value, { overwrite: false })
+                }
+                placeholder="https://example.com/page"
+                autoComplete="url"
+              />
+              <datalist id="admin-url-suggestions">
+                {urlSuggestions.map((url) => (
+                  <option key={url} value={url} />
+                ))}
+              </datalist>
+              <p className="admin-field-help">
+                Paste an HTTPS page. Name and slug fill from the last path segment
+                when those fields are empty. Use Autofill to replace them.
+              </p>
+              {embedCheck && !embedCheck.embeddable ? (
+                <Alert variant="destructive">
+                  <AlertTitle>This URL cannot be iframed</AlertTitle>
+                  <AlertDescription>{embedCheck.reason}</AlertDescription>
+                </Alert>
+              ) : null}
+            </div>
+            <div className="admin-field">
+              <Label htmlFor="admin-page-description">Short description</Label>
+              <Textarea
+                id="admin-page-description"
+                rows={3}
+                value={form.description}
+                onChange={(event) => setForm({ ...form, description: event.target.value })}
+                placeholder="Optional note for the page list."
+              />
+            </div>
+            <div className="admin-form-actions">
+              <div className="admin-checkbox-row">
+                <Checkbox
+                  id="admin-published"
+                  checked={form.published}
+                  onCheckedChange={(value) =>
+                    setForm({ ...form, published: value === true })
+                  }
+                />
+                <Label htmlFor="admin-published" className="admin-checkbox-label">
+                  Published and visible to visitors
+                </Label>
+              </div>
+              {publicSlug ? (
+                <Button variant="link" size="sm" className="admin-inline-link" asChild>
+                  <a href={`/view/${publicSlug}`}>Preview /view/{publicSlug}</a>
+                </Button>
+              ) : null}
+              <Button className="admin-submit" type="submit" disabled={saving}>
+                {editingSlug ? 'Save page' : 'Add page'}
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
 
-      <section className="admin-card">
-        <div className="admin-card-heading">
-          <div>
-            <div className="admin-eyebrow">Pages</div>
-            <h2>{sites.length} configured</h2>
-          </div>
-          <span className="admin-count">{sites.filter((site) => site.published).length} live</span>
-        </div>
-        <div className="admin-list">
-          {sites.length ? (
+      <Card>
+        <CardHeader>
+          <CardDescription>Pages</CardDescription>
+          <CardTitle>{sites.length} configured</CardTitle>
+          <CardAction>
+            <Badge variant="secondary">
+              {sites.filter((site) => site.published).length} live
+            </Badge>
+          </CardAction>
+        </CardHeader>
+        <CardContent className="admin-list">
+          {loading ? (
+            <p className="admin-muted">Loading pages from Neon…</p>
+          ) : sites.length ? (
             sites.map((site) => (
-              <article className="admin-site" key={site.slug}>
-                <div className="admin-site-topline">
-                  <div>
-                    <h3>{site.name}</h3>
-                    <p className="admin-site-url">/view/{site.slug}</p>
-                  </div>
-                  <span className={`admin-status${site.published ? ' admin-status--live' : ''}`}>
-                    {site.published ? 'Live' : 'Hidden'}
-                  </span>
-                </div>
-                <p className="admin-site-description">{site.description || site.url}</p>
-                <div className="admin-site-actions">
-                  <button className="admin-text-button" type="button" onClick={() => startEditing(site)}>
+              <Card key={site.slug} size="sm">
+                <CardHeader>
+                  <CardTitle>{site.name}</CardTitle>
+                  <CardDescription className="admin-site-slug">
+                    /view/{site.slug}
+                  </CardDescription>
+                  <CardAction>
+                    <Badge variant={site.published ? 'default' : 'outline'}>
+                      {site.published ? 'Live' : 'Hidden'}
+                    </Badge>
+                    {site.embeddable === false ? (
+                      <Badge variant="destructive">Cannot iframe</Badge>
+                    ) : null}
+                  </CardAction>
+                </CardHeader>
+                <CardContent>
+                  <p className="admin-muted">
+                    {site.description || site.url}
+                  </p>
+                </CardContent>
+                <CardFooter className="admin-site-actions">
+                  <Button variant="ghost" size="sm" asChild>
+                    <a href={site.url} target="_blank" rel="noreferrer">
+                      Preview site
+                    </a>
+                  </Button>
+                  <Button variant="ghost" size="sm" asChild>
+                    <a href={`/view/${site.slug}`}>Open viewer</a>
+                  </Button>
+                  <Button variant="ghost" size="sm" type="button" onClick={() => startEditing(site)}>
                     Edit
-                  </button>
-                  <button className="admin-text-button" type="button" onClick={() => togglePublished(site)}>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    type="button"
+                    onClick={() => togglePublished(site)}
+                  >
                     {site.published ? 'Unpublish' : 'Publish'}
-                  </button>
-                  <button className="admin-text-button" type="button" onClick={() => setDefault(site)}>
+                  </Button>
+                  <Button variant="ghost" size="sm" type="button" onClick={() => setDefault(site)}>
                     {site.isDefault ? 'Default' : 'Make default'}
-                  </button>
-                  <button className="admin-text-button admin-text-button--danger" type="button" onClick={() => removeSite(site)}>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    type="button"
+                    className="admin-delete"
+                    onClick={() => removeSite(site)}
+                  >
                     Delete
-                  </button>
-                </div>
-              </article>
+                  </Button>
+                </CardFooter>
+              </Card>
             ))
           ) : (
-            <p className="admin-muted">No pages yet. Add your first page above.</p>
+            <Empty className="admin-empty">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <LayoutList />
+                </EmptyMedia>
+                <EmptyTitle>No pages yet</EmptyTitle>
+                <EmptyDescription>
+                  Add your first page above.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           )}
-        </div>
-      </section>
+        </CardContent>
+      </Card>
 
-      <section className="admin-card admin-card--tools">
-        <div className="admin-card-heading">
-          <div>
-            <div className="admin-eyebrow">Deployment file</div>
-            <h2>Move your draft to Vercel</h2>
-          </div>
-        </div>
-        <p className="admin-muted">
-          Export the updated list, replace the project JSON file, and deploy
-          again. Import is useful when you move between browsers.
-        </p>
-        <div className="admin-tool-actions">
-          <button className="admin-button admin-button--primary" type="button" onClick={downloadJson}>
+      <Card>
+        <CardHeader>
+          <CardDescription>Backup</CardDescription>
+          <CardTitle>Export or restore pages</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="admin-muted">
+            Download is a JSON backup. Import replaces the Neon page list.
+          </p>
+        </CardContent>
+        <CardFooter className="admin-tools">
+          <Button type="button" onClick={downloadJson}>
             Download sites.json
-          </button>
-          <label className="admin-button admin-button--quiet admin-file-button">
+          </Button>
+          <Button
+            variant="outline"
+            type="button"
+            onClick={() => importInputRef.current?.click()}
+          >
             Import sites.json
-            <input type="file" accept="application/json,.json" onChange={importJson} />
-          </label>
-          <button className="admin-button admin-button--quiet" type="button" onClick={() => navigate('/')}>
+          </Button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json,.json"
+            hidden
+            className="hidden"
+            tabIndex={-1}
+            onChange={importJson}
+          />
+          <Button variant="outline" type="button" onClick={() => navigate('/')}>
             View default page
-          </button>
-        </div>
-      </section>
+          </Button>
+        </CardFooter>
+      </Card>
     </main>
   );
 }
 
 function MissingPage() {
   return (
-    <main className="viewer viewer--fallback">
+    <main className="viewer-root viewer--fallback">
       <div className="viewer__fallback">
         <div className="viewer__fallback-inner">
           <p className="viewer__fallback-message">That page is not available.</p>
