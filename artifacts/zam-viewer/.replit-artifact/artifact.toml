@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Zam Viewer"
+description = "A public-facing viewer that loads the owned SpaceX Zam page in an immersive, interactive frame while preserving the original site's scrolling, links, images, and behavior."
+version = "1.0.0"
+id = "artifacts/zam-viewer"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23544
+
+[services.development]
+run = "pnpm --filter @workspace/zam-viewer run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/zam-viewer", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/zam-viewer/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23544"
+BASE_PATH = "/"
