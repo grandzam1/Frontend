@@ -1,5 +1,5 @@
-import type { Site } from '../site';
-import { getSql } from './db';
+import type { Site } from './site.js';
+import { getSql } from './db.js';
 
 type SiteRow = {
   slug: string;
@@ -102,7 +102,12 @@ export async function deleteSite(slug: string) {
   await sql`DELETE FROM sites WHERE slug = ${slug}`;
 }
 
-export async function updateSitesEmbed(url: string, embeddable: boolean, reason: string, checkedAt: string) {
+export async function updateSitesEmbed(
+  url: string,
+  embeddable: boolean,
+  reason: string,
+  checkedAt: string,
+) {
   const sql = getSql();
   await sql`
     UPDATE sites

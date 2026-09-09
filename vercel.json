@@ -2,8 +2,13 @@
   "buildCommand": "pnpm build",
   "outputDirectory": "dist",
   "functions": {
-    "api/*.ts": {
-      "maxDuration": 30
+    "api/sites.ts": {
+      "maxDuration": 30,
+      "includeFiles": "api/lib/**"
+    },
+    "api/can-embed.ts": {
+      "maxDuration": 30,
+      "includeFiles": "api/lib/**"
     }
   },
   "rewrites": [

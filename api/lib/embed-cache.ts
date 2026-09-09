@@ -1,5 +1,5 @@
-import type { EmbedCheckResult } from '../embed-policy';
-import { getSql } from './db';
+import type { EmbedCheckResult } from './embed-policy.js';
+import { getSql } from './db.js';
 
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 

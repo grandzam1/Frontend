@@ -1,6 +1,6 @@
-import { inspectEmbedPolicy } from '../embed-policy';
-import { readEmbedCheck, writeEmbedCheck } from './embed-cache';
-import { updateSitesEmbed } from './sites';
+import { inspectEmbedPolicy } from './embed-policy.js';
+import { readEmbedCheck, writeEmbedCheck } from './embed-cache.js';
+import { updateSitesEmbed } from './sites.js';
 
 export async function canEmbedHandler(request: Request) {
   const target = new URL(request.url).searchParams.get('url');

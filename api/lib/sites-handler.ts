@@ -1,6 +1,6 @@
-import { hasAdminPin } from './db';
-import { deleteSite, listSites, replaceSites, upsertSite } from './sites';
-import type { Site } from '../site';
+import { hasAdminPin } from './db.js';
+import { deleteSite, listSites, replaceSites, upsertSite } from './sites.js';
+import type { Site } from './site.js';
 
 function isSite(value: unknown): value is Site {
   if (!value || typeof value !== 'object') {
