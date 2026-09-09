@@ -9,6 +9,10 @@
     "api/can-embed.ts": {
       "maxDuration": 30,
       "includeFiles": "api/_lib/**"
+    },
+    "api/analytics.ts": {
+      "maxDuration": 30,
+      "includeFiles": "api/_lib/**"
     }
   },
   "rewrites": [

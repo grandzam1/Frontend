@@ -111,4 +111,61 @@
   .admin-tools {
     @apply flex flex-wrap gap-2;
   }
+
+  .admin-analytics {
+    @apply grid gap-5;
+  }
+
+  .admin-analytics-section {
+    @apply grid gap-3;
+  }
+
+  .admin-analytics-heading {
+    @apply text-sm font-medium;
+  }
+
+  .admin-analytics-bars {
+    @apply grid gap-2;
+  }
+
+  .admin-analytics-bar-row {
+    @apply grid grid-cols-[7rem_1fr_3rem] items-center gap-3 text-sm;
+  }
+
+  .admin-analytics-bar-label {
+    @apply font-mono text-xs text-muted-foreground;
+  }
+
+  .admin-analytics-bar-track {
+    @apply h-2 overflow-hidden rounded-sm bg-muted;
+  }
+
+  .admin-analytics-bar-fill {
+    @apply block h-full rounded-sm bg-foreground;
+  }
+
+  .admin-analytics-bar-value {
+    @apply text-right tabular-nums;
+  }
+
+  .admin-analytics-table-wrap {
+    @apply overflow-x-auto;
+  }
+
+  .admin-analytics-table {
+    @apply w-full border-collapse text-sm;
+  }
+
+  .admin-analytics-table th {
+    @apply border-b border-border px-2 py-2 text-left font-medium text-muted-foreground;
+  }
+
+  .admin-analytics-table td {
+    @apply border-b border-border px-2 py-2;
+  }
+
+  .admin-analytics-table td:last-child,
+  .admin-analytics-table th:last-child {
+    @apply text-right tabular-nums;
+  }
 }

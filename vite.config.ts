@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { analyticsHandler } from './api/_lib/analytics-handler';
 import { canEmbedHandler } from './api/_lib/can-embed-handler';
 import { sitesHandler } from './api/_lib/sites-handler';
 
@@ -46,7 +47,9 @@ function apiPlugin(): Plugin {
         ? await sitesHandler(request)
         : pathname === '/api/can-embed'
           ? await canEmbedHandler(request)
-          : new Response(JSON.stringify({ error: 'Not found.' }), { status: 404 });
+          : pathname === '/api/analytics'
+            ? await analyticsHandler(request)
+            : new Response(JSON.stringify({ error: 'Not found.' }), { status: 404 });
 
     res.statusCode = response.status;
     response.headers.forEach((value, key) => {
@@ -85,6 +88,15 @@ export default defineConfig(({ mode }) => {
   }
   if (env.ADMIN_PIN) {
     process.env.ADMIN_PIN = env.ADMIN_PIN;
+  }
+  if (env.POSTHOG_PERSONAL_API_KEY) {
+    process.env.POSTHOG_PERSONAL_API_KEY = env.POSTHOG_PERSONAL_API_KEY;
+  }
+  if (env.POSTHOG_PROJECT_ID) {
+    process.env.POSTHOG_PROJECT_ID = env.POSTHOG_PROJECT_ID;
+  }
+  if (env.POSTHOG_HOST) {
+    process.env.POSTHOG_HOST = env.POSTHOG_HOST;
   }
 
   return {

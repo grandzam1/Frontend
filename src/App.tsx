@@ -7,6 +7,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from 'react';
+import { AdminAnalytics } from '@/components/admin-analytics';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { canEmbed, type EmbedCheckResult } from '@/lib/can-embed';
 import type { Site } from '@/lib/site';
@@ -707,6 +708,8 @@ function Admin() {
           see the published list immediately — no redeploy.
         </AlertDescription>
       </Alert>
+
+      <AdminAnalytics />
 
       {notice ? (
         <Alert>
