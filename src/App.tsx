@@ -8,9 +8,10 @@ import {
   type ReactNode,
 } from 'react';
 import { AdminAnalytics } from '@/components/admin-analytics';
+import { SpaceXHqHome } from '@/components/spacex-hq-home';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { canEmbed, type EmbedCheckResult } from '@/lib/can-embed';
-import type { Site } from '@/lib/site';
+import { getPublishedDefaultSite, type Site } from '@/lib/site';
 import {
   clearAdminPin,
   fetchAllSites,
@@ -49,14 +50,6 @@ import {
   useRoute,
   Router as WouterRouter,
 } from 'wouter';
-
-function getDefaultSite(sites: Site[]) {
-  return (
-    sites.find((site) => site.published && site.isDefault) ??
-    sites.find((site) => site.published) ??
-    sites[0]
-  );
-}
 
 function normalizeSiteUrl(value: string) {
   const url = new URL(value.trim());
@@ -258,9 +251,11 @@ function PublicSite({ slug }: { slug?: string }) {
       return undefined;
     }
     if (slug) {
-      return sites.find((candidate) => candidate.slug === slug && candidate.published);
+      return sites.find(
+        (candidate) => candidate.slug === slug && candidate.published,
+      );
     }
-    return getDefaultSite(sites);
+    return getPublishedDefaultSite(sites);
   }, [sites, slug, ready]);
 
   useEffect(() => {
@@ -294,6 +289,10 @@ function PublicSite({ slug }: { slug?: string }) {
         </div>
       </main>
     );
+  }
+
+  if (!slug && !site) {
+    return <SpaceXHqHome sites={sites} />;
   }
 
   return <Viewer site={site} />;
@@ -619,6 +618,18 @@ function Admin() {
   }
 
   async function setDefault(site: Site) {
+    if (site.isDefault) {
+      const nextSites = sites.map((candidate) => ({
+        ...candidate,
+        isDefault: false,
+      }));
+      await updateSites(
+        nextSites,
+        'Default cleared. / now shows SpaceX HQ home.',
+      );
+      return;
+    }
+
     const nextSites = sites.map((candidate) => ({
       ...candidate,
       isDefault: candidate.slug === site.slug,
@@ -632,9 +643,6 @@ function Admin() {
     }
 
     const remaining = sites.filter((candidate) => candidate.slug !== site.slug);
-    if (site.isDefault && remaining[0]) {
-      remaining[0] = { ...remaining[0], isDefault: true };
-    }
     const saved = await updateSites(remaining, `${site.name} was removed.`);
     if (saved && editingSlug === site.slug) {
       resetForm();
@@ -921,6 +929,10 @@ function Admin() {
           </CardAction>
         </CardHeader>
         <CardContent className="admin-list">
+          <p className="admin-muted">
+            If no page is default, visitors see the SpaceX HQ home page at{' '}
+            <span className="admin-code">/</span>.
+          </p>
           {loading ? (
             <p className="admin-muted">Loading pages from Neon…</p>
           ) : sites.length ? (
@@ -935,6 +947,9 @@ function Admin() {
                     <Badge variant={site.published ? 'default' : 'outline'}>
                       {site.published ? 'Live' : 'Hidden'}
                     </Badge>
+                    {site.isDefault ? (
+                      <Badge variant="secondary">Default</Badge>
+                    ) : null}
                     {site.embeddable === false ? (
                       <Badge variant="destructive">Cannot iframe</Badge>
                     ) : null}
@@ -966,7 +981,7 @@ function Admin() {
                     {site.published ? 'Unpublish' : 'Publish'}
                   </Button>
                   <Button variant="ghost" size="sm" type="button" onClick={() => setDefault(site)}>
-                    {site.isDefault ? 'Default' : 'Make default'}
+                    {site.isDefault ? 'Clear default' : 'Make default'}
                   </Button>
                   <Button
                     variant="ghost"
