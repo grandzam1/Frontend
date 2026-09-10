@@ -56,22 +56,38 @@ function Button({
     loading?: boolean;
   }) {
   const isDisabled = Boolean(disabled || loading);
-  const Comp = asChild && !loading ? Slot.Root : 'button';
+  const classes = cn(buttonVariants({ variant, size, className }));
+
+  // Slot requires exactly one React element child — never inject spinner beside it.
+  if (asChild && !loading) {
+    return (
+      <Slot.Root
+        data-slot="button"
+        data-variant={variant}
+        data-size={size}
+        className={classes}
+        {...props}
+      >
+        {children}
+      </Slot.Root>
+    );
+  }
 
   return (
-    <Comp
+    <button
+      type="button"
       data-slot="button"
       data-variant={variant}
       data-size={size}
       data-loading={loading ? 'true' : undefined}
-      className={cn(buttonVariants({ variant, size, className }))}
+      className={classes}
       disabled={isDisabled}
       aria-busy={loading || undefined}
       {...props}
     >
       {loading ? <Loader2 className="animate-spin" aria-hidden /> : null}
       {children}
-    </Comp>
+    </button>
   );
 }
 
