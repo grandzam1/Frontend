@@ -384,6 +384,7 @@ function Admin() {
   const [error, setError] = useState('');
   const [embedCheck, setEmbedCheck] = useState<EmbedCheckResult | null>(null);
   const [embedChecking, setEmbedChecking] = useState(false);
+  const [adminTab, setAdminTab] = useState<'pages' | 'analytics'>('pages');
   const importInputRef = useRef<HTMLInputElement>(null);
   const lastSuggestedNameRef = useRef('');
 
@@ -686,7 +687,9 @@ function Admin() {
           <p className="admin-eyebrow">
             Zam Viewer
           </p>
-          <h1 className="admin-title">Page manager</h1>
+          <h1 className="admin-title">
+            {adminTab === 'pages' ? 'Page manager' : 'Audience'}
+          </h1>
         </div>
         <Button
           type="button"
@@ -701,6 +704,35 @@ function Admin() {
         </Button>
       </header>
 
+      <div
+        className="admin-tabs"
+        role="tablist"
+        aria-label="Admin sections"
+      >
+        <button
+          type="button"
+          role="tab"
+          className="admin-tab"
+          aria-selected={adminTab === 'pages'}
+          onClick={() => setAdminTab('pages')}
+        >
+          Pages
+        </button>
+        <button
+          type="button"
+          role="tab"
+          className="admin-tab"
+          aria-selected={adminTab === 'analytics'}
+          onClick={() => setAdminTab('analytics')}
+        >
+          Analytics
+        </button>
+      </div>
+
+      {adminTab === 'analytics' ? <AdminAnalytics /> : null}
+
+      {adminTab === 'pages' ? (
+        <>
       <Alert>
         <AlertTitle>Stored in Neon</AlertTitle>
         <AlertDescription>
@@ -708,8 +740,6 @@ function Admin() {
           see the published list immediately — no redeploy.
         </AlertDescription>
       </Alert>
-
-      <AdminAnalytics />
 
       {notice ? (
         <Alert>
@@ -1001,6 +1031,8 @@ function Admin() {
           </Button>
         </CardFooter>
       </Card>
+        </>
+      ) : null}
     </main>
   );
 }

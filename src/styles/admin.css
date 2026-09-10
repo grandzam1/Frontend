@@ -36,6 +36,30 @@
     @apply text-2xl font-medium tracking-tight;
   }
 
+  .admin-tabs {
+    @apply flex flex-wrap gap-1 rounded-xl border border-border bg-muted/40 p-1;
+  }
+
+  .admin-tab {
+    @apply inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors sm:flex-none;
+  }
+
+  .admin-tab:hover {
+    @apply text-foreground;
+  }
+
+  .admin-tab[aria-selected='true'] {
+    @apply bg-background text-foreground shadow-sm;
+  }
+
+  .admin-tab-panel {
+    @apply grid gap-4;
+  }
+
+  .admin-analytics-tabs {
+    @apply mt-1;
+  }
+
   .admin-code {
     @apply font-mono text-foreground;
   }
