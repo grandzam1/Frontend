@@ -292,7 +292,7 @@ function PublicSite({ slug }: { slug?: string }) {
   }
 
   if (!slug && !site) {
-    return <SpaceXHqHome sites={sites} />;
+    return <SpaceXHqHome />;
   }
 
   return <Viewer site={site} />;

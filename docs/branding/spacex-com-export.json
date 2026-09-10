@@ -1,0 +1,25 @@
+{
+  "source": "https://www.spacex.com/",
+  "scrapedAt": "2026-09-10",
+  "colorScheme": "dark",
+  "colors": {
+    "background": "#000000",
+    "textPrimary": "#F0F0FA",
+    "accent": "#002746",
+    "border": "#545458"
+  },
+  "typography": {
+    "primary": "D-DIN",
+    "heading": "D-DIN-Bold",
+    "stack": ["D-DIN", "Arial", "Verdana", "sans-serif"],
+    "notes": "D-DIN is proprietary; landing uses a compatible condensed sans stack as inspiration, not a licensed font file."
+  },
+  "spacing": {
+    "borderRadius": "0px"
+  },
+  "personality": {
+    "tone": "professional",
+    "energy": "high"
+  },
+  "screenshot": "https://storage.googleapis.com/firecrawl-scrape-media/screenshot-7b23421a-e03c-4b63-933e-09b3f5a72607.png"
+}
