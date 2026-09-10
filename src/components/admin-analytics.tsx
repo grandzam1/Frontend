@@ -25,6 +25,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { useAsyncAction } from '@/hooks/use-async-action';
 
 type AnalyticsTab = 'overview' | 'location' | 'tech';
 
@@ -420,21 +421,28 @@ function TechPanel({
 
 export function AdminAnalytics() {
   const [data, setData] = useState<AnalyticsDashboard | null>(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [tab, setTab] = useState<AnalyticsTab>('overview');
+  const { run, isPending } = useAsyncAction();
+  const loading = isPending('analytics-load');
 
-  async function load() {
-    setLoading(true);
+  async function load(options?: { toastOnSuccess?: boolean }) {
     setError('');
-    try {
-      setData(await fetchAnalyticsDashboard());
-    } catch (err) {
-      setData(null);
-      setError(err instanceof Error ? err.message : 'Could not load analytics.');
-    } finally {
-      setLoading(false);
+    const result = await run(
+      'analytics-load',
+      async () => fetchAnalyticsDashboard(),
+      {
+        success: options?.toastOnSuccess ? 'Analytics refreshed.' : undefined,
+        errorFallback: 'Could not load analytics.',
+        errorTitle: 'Analytics unavailable',
+      },
+    );
+    if (result) {
+      setData(result);
+      return;
     }
+    setData(null);
+    setError('Could not load analytics.');
   }
 
   useEffect(() => {
@@ -464,10 +472,10 @@ export function AdminAnalytics() {
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => void load()}
-            disabled={loading}
+            loading={loading}
+            onClick={() => void load({ toastOnSuccess: true })}
           >
-            <RefreshCw className={loading ? 'animate-spin' : undefined} />
+            {loading ? null : <RefreshCw />}
             {loading ? 'Refreshing' : 'Refresh'}
           </Button>
         </CardAction>

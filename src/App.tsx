@@ -22,6 +22,8 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { useToast } from '@/components/ui/toast';
+import { useAsyncAction } from '@/hooks/use-async-action';
 import {
   Card,
   CardAction,
@@ -301,17 +303,7 @@ function PublicSite({ slug }: { slug?: string }) {
 function AdminLogin({ onUnlock }: { onUnlock: () => void }) {
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const result = await unlockAdmin(pin);
-    if (result.ok) {
-      onUnlock();
-      return;
-    }
-    setError(result.message);
-    setPin('');
-  }
+  const { run, isPending } = useAsyncAction();
 
   return (
     <main className="admin-login">
@@ -324,7 +316,33 @@ function AdminLogin({ onUnlock }: { onUnlock: () => void }) {
           <p className="admin-login-copy">
             Enter the admin PIN to manage pages stored in Neon.
           </p>
-          <form className="admin-form" onSubmit={handleSubmit}>
+          <form
+            className="admin-form"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              setError('');
+              const result = await run(
+                'admin-unlock',
+                async () => {
+                  const unlock = await unlockAdmin(pin);
+                  if (!unlock.ok) {
+                    setError(unlock.message);
+                    throw new Error(unlock.message);
+                  }
+                  onUnlock();
+                  return true;
+                },
+                {
+                  success: 'Admin unlocked.',
+                  successTitle: 'Welcome',
+                  errorTitle: 'Could not unlock',
+                },
+              );
+              if (result === undefined) {
+                setPin('');
+              }
+            }}
+          >
             <div className="admin-field">
               <Label htmlFor="admin-pin">Admin PIN</Label>
               <Input
@@ -347,7 +365,9 @@ function AdminLogin({ onUnlock }: { onUnlock: () => void }) {
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             ) : null}
-            <Button type="submit">Unlock admin</Button>
+            <Button type="submit" loading={isPending('admin-unlock')}>
+              Unlock admin
+            </Button>
           </form>
         </CardContent>
         <CardFooter>
@@ -363,6 +383,8 @@ function AdminLogin({ onUnlock }: { onUnlock: () => void }) {
 
 function Admin() {
   const [, navigate] = useLocation();
+  const toast = useToast();
+  const { run, isPending } = useAsyncAction();
   const [unlocked, setUnlocked] = useState(
     () =>
       typeof window !== 'undefined' &&
@@ -370,7 +392,6 @@ function Admin() {
   );
   const [sites, setSites] = useState<Site[]>([]);
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [editingSlug, setEditingSlug] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: '',
@@ -379,7 +400,6 @@ function Admin() {
     description: '',
     published: true,
   });
-  const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [embedCheck, setEmbedCheck] = useState<EmbedCheckResult | null>(null);
   const [embedChecking, setEmbedChecking] = useState(false);
@@ -484,6 +504,7 @@ function Admin() {
         const message =
           loadError instanceof Error ? loadError.message : 'Could not load pages.';
         setError(message);
+        toast.error(message, 'Could not load pages');
         if (/admin pin|401|unauthorized/i.test(message)) {
           clearAdminPin();
           setUnlocked(false);
@@ -501,19 +522,21 @@ function Admin() {
   }, [unlocked]);
 
   async function updateSites(nextSites: Site[], nextNotice = '') {
-    setSaving(true);
-    try {
-      const saved = await persistSites(nextSites);
-      setSites(saved);
-      setNotice(nextNotice);
-      setError('');
-      return true;
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Could not save pages.');
+    const saved = await run(
+      'sites-save',
+      async () => persistSites(nextSites),
+      {
+        success: nextNotice || 'Pages saved.',
+        errorFallback: 'Could not save pages.',
+        errorTitle: 'Save failed',
+      },
+    );
+    if (!saved) {
       return false;
-    } finally {
-      setSaving(false);
     }
+    setSites(saved);
+    setError('');
+    return true;
   }
 
   function resetForm() {
@@ -538,7 +561,6 @@ function Admin() {
       description: site.description,
       published: site.published,
     });
-    setNotice('');
     setError('');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
@@ -551,12 +573,17 @@ function Admin() {
     const name = form.name.trim();
 
     if (!name || !slug || !form.url.trim()) {
-      setError('Name, slug, and URL are required.');
+      const message = 'Name, slug, and URL are required.';
+      setError(message);
+      toast.error(message, 'Check the form');
       return;
     }
 
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
-      setError('Use lowercase letters, numbers, and hyphens for the slug.');
+      const message =
+        'Use lowercase letters, numbers, and hyphens for the slug.';
+      setError(message);
+      toast.error(message, 'Check the form');
       return;
     }
 
@@ -564,12 +591,16 @@ function Admin() {
     try {
       url = normalizeSiteUrl(form.url);
     } catch {
-      setError('Enter a valid HTTPS URL.');
+      const message = 'Enter a valid HTTPS URL.';
+      setError(message);
+      toast.error(message, 'Check the form');
       return;
     }
 
     if (sites.some((site) => site.slug === slug && site.slug !== editingSlug)) {
-      setError('That slug is already in use.');
+      const message = 'That slug is already in use.';
+      setError(message);
+      toast.error(message, 'Check the form');
       return;
     }
 
@@ -611,30 +642,41 @@ function Admin() {
         ? { ...candidate, published: !candidate.published }
         : candidate,
     );
-    await updateSites(
-      nextSites,
-      `${site.name} is now ${site.published ? 'unpublished' : 'published'}.`,
+    const saved = await run(
+      `publish:${site.slug}`,
+      async () => persistSites(nextSites),
+      {
+        success: `${site.name} is now ${
+          site.published ? 'unpublished' : 'published'
+        }.`,
+        errorFallback: 'Could not update publish state.',
+      },
     );
+    if (saved) {
+      setSites(saved);
+    }
   }
 
   async function setDefault(site: Site) {
-    if (site.isDefault) {
-      const nextSites = sites.map((candidate) => ({
-        ...candidate,
-        isDefault: false,
-      }));
-      await updateSites(
-        nextSites,
-        'Default cleared. / now shows SpaceX HQ home.',
-      );
-      return;
+    const nextSites = site.isDefault
+      ? sites.map((candidate) => ({ ...candidate, isDefault: false }))
+      : sites.map((candidate) => ({
+          ...candidate,
+          isDefault: candidate.slug === site.slug,
+        }));
+    const saved = await run(
+      `default:${site.slug}`,
+      async () => persistSites(nextSites),
+      {
+        success: site.isDefault
+          ? 'Default cleared. / now shows SpaceX HQ home.'
+          : `${site.name} is now the default page.`,
+        errorFallback: 'Could not update default page.',
+      },
+    );
+    if (saved) {
+      setSites(saved);
     }
-
-    const nextSites = sites.map((candidate) => ({
-      ...candidate,
-      isDefault: candidate.slug === site.slug,
-    }));
-    await updateSites(nextSites, `${site.name} is now the default page.`);
   }
 
   async function removeSite(site: Site) {
@@ -643,23 +685,39 @@ function Admin() {
     }
 
     const remaining = sites.filter((candidate) => candidate.slug !== site.slug);
-    const saved = await updateSites(remaining, `${site.name} was removed.`);
-    if (saved && editingSlug === site.slug) {
-      resetForm();
+    const saved = await run(
+      `delete:${site.slug}`,
+      async () => persistSites(remaining),
+      {
+        success: `${site.name} was removed.`,
+        errorFallback: 'Could not delete page.',
+      },
+    );
+    if (saved) {
+      setSites(saved);
+      if (editingSlug === site.slug) {
+        resetForm();
+      }
     }
   }
 
   function downloadJson() {
-    const blob = new Blob([JSON.stringify(sites, null, 2)], {
-      type: 'application/json',
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'sites.json';
-    link.click();
-    URL.revokeObjectURL(url);
-    setNotice('Downloaded a backup of the pages stored in Neon.');
+    try {
+      const blob = new Blob([JSON.stringify(sites, null, 2)], {
+        type: 'application/json',
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'sites.json';
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success('Downloaded a backup of the pages stored in Neon.');
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : 'Could not download backup.',
+      );
+    }
   }
 
   function importJson(event: ChangeEvent<HTMLInputElement>) {
@@ -675,9 +733,21 @@ function Admin() {
         if (!Array.isArray(parsed)) {
           throw new Error('The JSON must contain an array.');
         }
-        await updateSites(parsed as Site[], 'Imported pages into Neon.');
+        const saved = await run(
+          'import-json',
+          async () => persistSites(parsed as Site[]),
+          {
+            success: 'Imported pages into Neon.',
+            errorFallback: 'Could not import pages.',
+          },
+        );
+        if (saved) {
+          setSites(saved);
+        }
       } catch {
-        setError('That file is not a valid sites.json array.');
+        const message = 'That file is not a valid sites.json array.';
+        setError(message);
+        toast.error(message, 'Import failed');
       }
       event.target.value = '';
     };
@@ -749,12 +819,6 @@ function Admin() {
         </AlertDescription>
       </Alert>
 
-      {notice ? (
-        <Alert>
-          <AlertTitle>Saved</AlertTitle>
-          <AlertDescription>{notice}</AlertDescription>
-        </Alert>
-      ) : null}
       {error ? (
         <Alert variant="destructive">
           <AlertTitle>Check the form</AlertTitle>
@@ -910,7 +974,11 @@ function Admin() {
                   <a href={`/view/${publicSlug}`}>Preview /view/{publicSlug}</a>
                 </Button>
               ) : null}
-              <Button className="admin-submit" type="submit" disabled={saving}>
+              <Button
+                className="admin-submit"
+                type="submit"
+                loading={isPending('sites-save')}
+              >
                 {editingSlug ? 'Save page' : 'Add page'}
               </Button>
             </div>
@@ -976,11 +1044,18 @@ function Admin() {
                     variant="ghost"
                     size="sm"
                     type="button"
-                    onClick={() => togglePublished(site)}
+                    loading={isPending(`publish:${site.slug}`)}
+                    onClick={() => void togglePublished(site)}
                   >
                     {site.published ? 'Unpublish' : 'Publish'}
                   </Button>
-                  <Button variant="ghost" size="sm" type="button" onClick={() => setDefault(site)}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    type="button"
+                    loading={isPending(`default:${site.slug}`)}
+                    onClick={() => void setDefault(site)}
+                  >
                     {site.isDefault ? 'Clear default' : 'Make default'}
                   </Button>
                   <Button
@@ -988,7 +1063,8 @@ function Admin() {
                     size="sm"
                     type="button"
                     className="admin-delete"
-                    onClick={() => removeSite(site)}
+                    loading={isPending(`delete:${site.slug}`)}
+                    onClick={() => void removeSite(site)}
                   >
                     Delete
                   </Button>
@@ -1028,6 +1104,7 @@ function Admin() {
           <Button
             variant="outline"
             type="button"
+            loading={isPending('import-json')}
             onClick={() => importInputRef.current?.click()}
           >
             Import sites.json

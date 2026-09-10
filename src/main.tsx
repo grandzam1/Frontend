@@ -3,6 +3,7 @@ import { PostHogProvider } from '@posthog/react';
 
 import App from './App';
 import { ErrorBoundary } from '@/components/error-boundary';
+import { ToastProvider } from '@/components/ui/toast';
 
 import './index.css';
 
@@ -11,7 +12,9 @@ const posthogHost = import.meta.env.VITE_POSTHOG_HOST;
 
 const app = (
   <ErrorBoundary>
-    <App />
+    <ToastProvider>
+      <App />
+    </ToastProvider>
   </ErrorBoundary>
 );
 
