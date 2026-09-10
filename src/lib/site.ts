@@ -9,3 +9,8 @@ export type Site = {
   embedCheckedAt?: string;
   embedReason?: string;
 };
+
+/** Strict home default: published + isDefault only. No fallback. */
+export function getPublishedDefaultSite(sites: Site[]): Site | undefined {
+  return sites.find((site) => site.published && site.isDefault);
+}
